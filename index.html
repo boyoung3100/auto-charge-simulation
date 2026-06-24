@@ -60,6 +60,8 @@
   }
   .clockbtn.back { left: calc(50% - 128px); }
   .clockbtn.fwd  { left: calc(50% + 70px); }
+  .clockbtn.pause { top: 44px; left: 50%; transform: translateX(-50%); }
+  .clockbtn.pause.paused { background: var(--accent); color: #06203f; border-color: var(--accent); }
   canvas { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; }
   .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 12px; color: var(--muted); }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -91,6 +93,7 @@
     <canvas id="cv" width="960" height="520"></canvas>
     <button id="back" class="clockbtn back" title="rewind 1 hour">⏪ −1h</button>
     <button id="fwd" class="clockbtn fwd" title="advance 1 hour">+1h ⏩</button>
+    <button id="pause" class="clockbtn pause" title="freeze / resume time">⏸ Pause</button>
   </div>
 
   <div class="legend">
@@ -122,6 +125,7 @@
   let autoMode = false;           // default: dispatch a job only when an AMR is clicked
   let idleTrigger = false;        // is_idle: when on, battery also triggers charging while idle at the return point
   let alwaysAfterMission = false; // always_after_mission: finishing a job always sends the robot to charge, battery aside
+  let paused = false;             // freeze the clock and every AMR in place until resumed
 
   // Operating window. open==close => 24h; supports overnight windows (open>close).
   function isOpenAt(h) {
@@ -507,20 +511,22 @@
   function drawClock() {
     const open = isOpenAt(simHour);
     const label = '🕐 ' + clockLabel();
-    const status = open ? 'OPEN' : 'OFF-HOURS';
+    const status = paused ? 'PAUSED' : (open ? 'OPEN' : 'OFF-HOURS');
+    const accent = paused ? '#4f9cff' : (open ? '#34d399' : '#fbbf24');
     ctx.font = 'bold 14px sans-serif';
     const text = label + '   ·   ' + status;
     const w = ctx.measureText(text).width + 28;
     const x = (W - w) / 2, y = 12, h = 28;
-    ctx.fillStyle = '#0c1320'; ctx.strokeStyle = open ? '#34d399' : '#fbbf24'; ctx.lineWidth = 1.5;
+    ctx.fillStyle = '#0c1320'; ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
     rr(x, y, w, h, 8); ctx.fill(); ctx.stroke();
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#e7ecf5'; ctx.fillText(label + '   ·   ', x + 14, y + h / 2 + 1);
     const pre = ctx.measureText(label + '   ·   ').width;
-    ctx.fillStyle = open ? '#34d399' : '#fbbf24'; ctx.fillText(status, x + 14 + pre, y + h / 2 + 1);
+    ctx.fillStyle = accent; ctx.fillText(status, x + 14 + pre, y + h / 2 + 1);
     ctx.textBaseline = 'alphabetic';
+    // operating-hours hint, parked at the bottom so it clears the centered pause button
     ctx.fillStyle = '#6b7790'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('hours ' + pad2(cfg.openHour) + ':00–' + pad2(cfg.closeHour) + ':00', W / 2, y + h + 13);
+    ctx.fillText('hours ' + pad2(cfg.openHour) + ':00–' + pad2(cfg.closeHour) + ':00', W / 2, H - 12);
   }
 
   function draw() {
@@ -550,7 +556,8 @@
   function frame(now) {
     let dt = (now - last) / 1000; last = now;
     if (dt > 0.1) dt = 0.1;
-    step(dt); draw(); updateStats();
+    if (!paused) step(dt);   // paused: clock + AMRs frozen, but keep rendering
+    draw(); updateStats();
     requestAnimationFrame(frame);
   }
 
@@ -585,6 +592,14 @@
   const shiftHour = d => { simHour = (simHour + d + 24) % 24; };
   document.getElementById('back').addEventListener('click', () => shiftHour(-1));
   document.getElementById('fwd').addEventListener('click', () => shiftHour(1));
+
+  // Freeze / resume the whole simulation (clock and all AMRs).
+  const pauseBtn = document.getElementById('pause');
+  pauseBtn.addEventListener('click', () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+    pauseBtn.classList.toggle('paused', paused);
+  });
 
   document.getElementById('auto').addEventListener('change', e => { autoMode = e.target.checked; });
   document.getElementById('idle').addEventListener('change', e => { idleTrigger = e.target.checked; });
