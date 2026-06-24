@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Auto Charge 2.0 — AMR Factory Simulation</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b26;
+    --panel2: #1f2738;
+    --ink: #e7ecf5;
+    --muted: #8b97ac;
+    --accent: #4f9cff;
+    --line: #2a3346;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 18px;
+  }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .ctrl { display: flex; flex-direction: column; gap: 4px; }
+  .ctrl label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .ctrl .val { font-weight: 600; color: var(--accent); }
+  input[type=range] { width: 130px; accent-color: var(--accent); }
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink);
+    font-weight: 600; cursor: pointer; user-select: none; padding-bottom: 2px;
+  }
+  .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .toggle .track {
+    flex: none; width: 38px; height: 21px; border-radius: 999px;
+    background: var(--line); position: relative; transition: background .16s ease;
+  }
+  .toggle .track::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px;
+    border-radius: 50%; background: #e8edf6; transition: transform .16s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .toggle input:checked + .track { background: var(--accent); }
+  .toggle input:checked + .track::after { transform: translateX(17px); }
+  .toggle input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button {
+    background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 14px; font-weight: 700; cursor: pointer; font-size: 13px;
+  }
+  .stage { position: relative; }
+  .clockbtn {
+    position: absolute; top: 7px; padding: 4px 9px; font-size: 12px; font-weight: 700;
+    background: rgba(12,19,32,0.85); border-color: var(--line); backdrop-filter: blur(2px);
+  }
+  .clockbtn.back { left: calc(50% - 128px); }
+  .clockbtn.fwd  { left: calc(50% + 70px); }
+  canvas { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .stats { display: flex; gap: 18px; margin-top: 10px; font-size: 13px; flex-wrap: wrap; }
+  .stats b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏭 Auto Charge 2.0 — AMR Factory Simulation</h1>
+  <div class="sub">Click an AMR resting at its return point (dashed ring) to dispatch one job: pick up a part at a top station, carry it down to a drop-off station, then head back — one job per trip. No two AMRs share a station. Toggle <b>Auto-run</b> to dispatch continuously instead. The battery check normally happens only on the return trip — if it's at or below the low-battery limit the AMR diverts to the nearest free charger (or a standby spot), charges to the resume limit, and returns. Turn on <b>is_idle</b> to also trigger charging while an AMR sits idle at its return point; with it off, an idle AMR runs flat and powers off.</div>
+
+  <div class="controls">
+    <div class="ctrl"><label>AMRs <span class="val" id="vRobots">4</span></label><input type="range" id="robots" min="1" max="8" value="4" /></div>
+    <div class="ctrl"><label>Chargers <span class="val" id="vChargers">2</span></label><input type="range" id="chargers" min="1" max="6" value="2" /></div>
+    <div class="ctrl"><label>Low limit → charge <span class="val" id="vMin">20%</span></label><input type="range" id="minPct" min="5" max="60" value="20" /></div>
+    <div class="ctrl"><label>Resume limit → work <span class="val" id="vMax">80%</span></label><input type="range" id="maxPct" min="40" max="100" value="80" /></div>
+    <div class="ctrl"><label>Open <span class="val" id="vOpen">09:00</span></label><input type="range" id="openH" min="0" max="23" value="9" /></div>
+    <div class="ctrl"><label>Close <span class="val" id="vClose">18:00</span></label><input type="range" id="closeH" min="0" max="23" value="18" /></div>
+    <div class="ctrl"><label>Speed <span class="val" id="vSpeed">1.5×</span></label><input type="range" id="speed" min="0.5" max="5" step="0.5" value="1.5" /></div>
+    <label class="toggle"><input type="checkbox" id="auto" /><span class="track"></span> Auto-run</label>
+    <label class="toggle"><input type="checkbox" id="idle" /><span class="track"></span> is_idle</label>
+    <label class="toggle"><input type="checkbox" id="aam" /><span class="track"></span> always_after_mission</label>
+    <button id="reset">↻ Reset</button>
+  </div>
+
+  <div class="stage">
+    <canvas id="cv" width="960" height="520"></canvas>
+    <button id="back" class="clockbtn back" title="rewind 1 hour">⏪ −1h</button>
+    <button id="fwd" class="clockbtn fwd" title="advance 1 hour">+1h ⏩</button>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:#34d399"></i>Working (📦 pick up → 📥 drop off)</span>
+    <span><i class="dot" style="background:#2dd4bf"></i>Returning — battery checked here</span>
+    <span><i class="dot" style="background:#fb923c"></i>To charger</span>
+    <span><i class="dot" style="background:#38bdf8"></i>Charging</span>
+    <span><i class="dot" style="background:#c084fc"></i>Waiting (standby)</span>
+    <span><i class="dot" style="background:#4b5568"></i>Powered off (ran flat)</span>
+    <span><i class="dot" style="background:#5b6b86"></i>Post-charge return point</span>
+  </div>
+  <div class="stats" id="stats"></div>
+</div>
+
+<script>
+(() => {
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+
+  const cfg = {
+    robots: 4, chargers: 2, minPct: 20, maxPct: 80, speed: 1.5,
+    openHour: 9, closeHour: 18,
+    drainPerSec: 1.5, chargePerSec: 4.5, idleDrainPerSec: 0.5, restDrainPerSec: 0.2, robotSpeed: 95,   // charge:drain = 3:1
+  };
+  const SIM_HOURS_PER_SEC = 0.1;   // base clock rate (scaled by speed)
+  let simHour = 9.05;              // start just after opening
+  let prevOpen = true;
+  let autoMode = false;           // default: dispatch a job only when an AMR is clicked
+  let idleTrigger = false;        // is_idle: when on, battery also triggers charging while idle at the return point
+  let alwaysAfterMission = false; // always_after_mission: finishing a job always sends the robot to charge, battery aside
+
+  // Operating window. open==close => 24h; supports overnight windows (open>close).
+  function isOpenAt(h) {
+    if (cfg.openHour === cfg.closeHour) return true;
+    if (cfg.openHour < cfg.closeHour) return h >= cfg.openHour && h < cfg.closeHour;
+    return h >= cfg.openHour || h < cfg.closeHour;
+  }
+  const pad2 = n => String(n).padStart(2, '0');
+  function clockLabel() {
+    const hh = Math.floor(simHour) % 24, mm = Math.floor((simHour - Math.floor(simHour)) * 60);
+    return pad2(hh) + ':' + pad2(mm);
+  }
+  const COLORS = {
+    home: '#34d399', toPickup: '#34d399', atPickup: '#34d399',
+    toDropoff: '#22c55e', atDropoff: '#22c55e',
+    toReturn: '#2dd4bf', toCharger: '#fb923c', toStandby: '#c084fc',
+    waiting: '#c084fc', charging: '#38bdf8', dead: '#4b5568',
+  };
+
+  // zones
+  const homeX = 78;
+  const work = { x0: 175, y0: 78, x1: 600, y1: H - 46 };
+  const standbyX = W - 232;
+  const chargerX = W - 84;
+
+  let chargers = [], standbys = [], stations = [], pickups = [], dropoffs = [], homes = [], robots = [];
+
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  function column(n, x) {
+    const out = [], top = 84, bot = H - 64;
+    for (let i = 0; i < n; i++) {
+      const y = n === 1 ? (top + bot) / 2 : top + (bot - top) * i / (n - 1);
+      out.push({ x, y, occupant: null, claimedBy: null });
+    }
+    return out;
+  }
+
+  function build() {
+    chargers = column(cfg.chargers, chargerX);
+    standbys = column(Math.max(2, cfg.robots), standbyX);
+    homes = column(cfg.robots, homeX);
+    // work stations: a row of PICKUP stations along the top of the floor and a
+    // row of DROP-OFF stations along the bottom. One job = grab a part up top,
+    // carry it down, drop it, return. Enough columns that AMRs rarely queue.
+    stations = [];
+    const cols = Math.max(3, cfg.robots);
+    const pickY = work.y0 + (work.y1 - work.y0) * 0.26;
+    const dropY = work.y0 + (work.y1 - work.y0) * 0.80;
+    for (let c = 0; c < cols; c++) {
+      const x = work.x0 + (work.x1 - work.x0) * (c + 0.5) / cols;
+      stations.push({ x, y: pickY, kind: 'pickup', id: c + 1, occupant: null, claimedBy: null });
+      stations.push({ x, y: dropY, kind: 'dropoff', id: c + 1, occupant: null, claimedBy: null });
+    }
+    pickups = stations.filter(s => s.kind === 'pickup');
+    dropoffs = stations.filter(s => s.kind === 'dropoff');
+    robots = [];
+    for (let i = 0; i < cfg.robots; i++) {
+      const home = homes[i];
+      robots.push({
+        id: i + 1, home,
+        x: home.x + 26, y: home.y,
+        battery: rand(cfg.maxPct, 100),
+        state: 'home', target: { x: home.x + 26, y: home.y }, slot: null, carrying: false,
+        requested: false,                // manual mode: set true on click
+        dwell: rand(0, 0.8) + i * 0.3,   // stagger first dispatch (auto mode)
+      });
+    }
+  }
+
+  function nearestFree(slots, from) {
+    let best = null, bd = Infinity;
+    for (const s of slots) {
+      if (s.occupant || s.claimedBy) continue;
+      const d = dist(s, from); if (d < bd) { bd = d; best = s; }
+    }
+    return best;
+  }
+  function freeSlot(r) {
+    if (r.slot) { if (r.slot.occupant === r.id) r.slot.occupant = null; if (r.slot.claimedBy === r.id) r.slot.claimedBy = null; }
+  }
+  function moveToward(r, dt) {
+    const t = r.target, d = Math.hypot(t.x - r.x, t.y - r.y);
+    const step = cfg.robotSpeed * cfg.speed * dt;
+    if (d <= step) { r.x = t.x; r.y = t.y; return true; }
+    r.x += (t.x - r.x) / d * step; r.y += (t.y - r.y) / d * step; return false;
+  }
+
+  // requestCharge reserves a charger at DEPARTURE time: whoever leaves first
+  // grabs the nearest open dock (claimedBy), so a later AMR won't aim for it and
+  // arrive only to be turned away. If every charger is taken it falls back to a
+  // standby spot; if nothing is open it leaves the state unchanged so the caller
+  // retries on the next tick.
+  function goStandby(r) {
+    const s = nearestFree(standbys, r);
+    if (s) { s.claimedBy = r.id; r.slot = s; r.state = 'toStandby'; r.target = { x: s.x, y: s.y }; }
+  }
+  // Working-hours battery trigger: reserve a charger up front (free-ness decided
+  // at DEPARTURE). If none is free, go straight to a standby spot.
+  function requestCharge(r) {
+    freeSlot(r); r.slot = null; r.carrying = false;   // drop any station/part hold first
+    const c = nearestFree(chargers, r);
+    if (c) { c.claimedBy = r.id; r.slot = c; r.state = 'toCharger'; r.target = { x: c.x - 26, y: c.y }; return; }
+    goStandby(r);
+  }
+  // Closing-time clock-out: every robot heads for a charger WITHOUT reserving it
+  // — the dock is resolved ON ARRIVAL (occupy if free, otherwise try another free
+  // charger, otherwise standby; see the toCharger case). Mirrors the real
+  // end-of-day stampede where slots are contested instead of pre-assigned.
+  function rushToCharger(r) {
+    freeSlot(r); r.slot = null; r.carrying = false;
+    const c = nearestFree(chargers, r);
+    if (c) { r.slot = c; r.state = 'toCharger'; r.target = { x: c.x - 26, y: c.y }; return; }
+    goStandby(r);
+  }
+  const homeTarget = r => ({ x: r.home.x + 26, y: r.home.y });
+  // States that get sent to charge on the time-based clock-out. 'home' IS
+  // included: closing time sends every robot to a charger regardless of where it
+  // is, independent of is_idle — matching the real Decide's pre-switch
+  // outsideOperationWindow rule (which fires before the when_idle case). is_idle
+  // only governs the *battery* trigger while idle, not the clock-out.
+  const ACTIVE = ['home', 'toPickup', 'atPickup', 'toDropoff', 'atDropoff', 'toReturn'];
+
+  function step(dt) {
+    const sdt = dt * cfg.speed;
+
+    // advance the operating clock and detect clock-in / clock-out edges
+    simHour = (simHour + SIM_HOURS_PER_SEC * cfg.speed * dt) % 24;
+    const open = isOpenAt(simHour);
+    if (open !== prevOpen) {
+      // clock-in: parked AMRs head back to their post-charge return point, then
+      // resume the task cycle. (clock-out is handled per-tick below.)
+      if (open) {
+        for (const r of robots) {
+          if (['charging', 'waiting', 'toStandby', 'toCharger'].includes(r.state)) {
+            freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r);
+          }
+        }
+      }
+      prevOpen = open;
+    }
+
+    for (const r of robots) {
+      // Clock-out (off-hours): every AMR heads to a charger regardless of
+      // battery, contesting docks on arrival (rush). This is the time-based
+      // trigger; the battery-based trigger (requestCharge, reserve-at-departure)
+      // lives only on the toReturn / idle legs below.
+      if (!open && ACTIVE.includes(r.state)) { rushToCharger(r); continue; }
+
+      switch (r.state) {
+        case 'home':
+          // Parked at the return point: still self-discharging, but slowly since
+          // it isn't driving around.
+          r.battery = Math.max(0, r.battery - cfg.restDrainPerSec * sdt);
+          // is_idle ON: battery also triggers charging while parked here.
+          // is_idle OFF: no battery trigger here at all — it runs flat and powers
+          // off (only the return trip triggers charging).
+          if (idleTrigger && r.battery <= cfg.minPct) { requestCharge(r); break; }
+          if (r.battery <= 0) { r.state = 'dead'; r.requested = false; break; }
+          // In auto mode the AMR takes a job after a short pause; in manual mode
+          // (default) it waits for a click. Either way: claim a free pickup
+          // station and head for it.
+          if (r.dwell > 0) { r.dwell -= sdt; break; }
+          if (!autoMode && !r.requested) break;
+          {
+            const p = nearestFree(pickups, r);
+            if (!p) break;
+            r.requested = false;
+            p.claimedBy = r.id; r.slot = p; r.state = 'toPickup'; r.target = { x: p.x, y: p.y };
+          }
+          break;
+        case 'dead':
+          break;   // powered off at the return point; stays put until Reset
+        case 'toPickup':
+          r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt);
+          if (moveToward(r, dt)) { r.slot.occupant = r.id; r.slot.claimedBy = null; r.state = 'atPickup'; r.dwell = rand(0.7, 1.6); }
+          break;
+        case 'atPickup':
+          r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt); // loading the part
+          if (r.dwell > 0) { r.dwell -= sdt; break; }
+          {
+            // Got the part. Reserve a drop-off spot before leaving; if none is
+            // free, keep holding this pickup station and the part until one is.
+            const d = nearestFree(dropoffs, r);
+            if (!d) break;
+            freeSlot(r);
+            d.claimedBy = r.id; r.slot = d; r.carrying = true;
+            r.state = 'toDropoff'; r.target = { x: d.x, y: d.y };
+          }
+          break;
+        case 'toDropoff':
+          r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt);
+          if (moveToward(r, dt)) { r.slot.occupant = r.id; r.slot.claimedBy = null; r.state = 'atDropoff'; r.dwell = rand(0.7, 1.6); }
+          break;
+        case 'atDropoff':
+          r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt); // unloading the part
+          if (r.dwell > 0) { r.dwell -= sdt; break; }
+          freeSlot(r); r.slot = null; r.carrying = false;
+          // always_after_mission: finishing a job sends the robot to charge no
+          // matter the battery level (reserve at departure; standby if all
+          // chargers are full). Otherwise just head back to the return point.
+          if (alwaysAfterMission) { requestCharge(r); break; }
+          r.state = 'toReturn'; r.target = homeTarget(r);
+          break;
+        case 'toReturn':
+          r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt);
+          // No battery trigger DURING the return trip: the robot can't cancel a
+          // running mission. The decision is made when the returning mission
+          // FINISHES (arrival) — matching the real Decide, where a low-battery
+          // GO_TO_CHARGER is suppressed by "mission already running" until the
+          // returning mission reaches SUCCEEDED.
+          if (moveToward(r, dt)) {
+            // Returning mission done. Evaluate battery now: low -> charge. This
+            // is the ReturnPoint + mission-SUCCEEDED lowBatteryReached, which
+            // fires regardless of is_idle (is_idle governs only the later idle
+            // state in the home case below).
+            if (r.battery <= cfg.minPct) { requestCharge(r); break; }
+            r.state = 'home'; r.dwell = rand(0.5, 1.4);
+          }
+          break;
+        case 'toCharger':
+          r.battery = Math.max(0, r.battery - cfg.idleDrainPerSec * sdt);
+          if (moveToward(r, dt)) {
+            if (!r.slot.occupant) {
+              // Free (reserved battery-trigger dock, or won the rush) -> charge.
+              r.slot.occupant = r.id; r.slot.claimedBy = null; r.state = 'charging';
+            } else {
+              // Lost a contested dock (clock-out rush): try another free charger,
+              // and if every charger is taken, fall back to a standby spot.
+              r.slot = null;
+              const c2 = nearestFree(chargers, r);
+              if (c2) { r.slot = c2; r.target = { x: c2.x - 26, y: c2.y }; }
+              else goStandby(r);
+            }
+          }
+          break;
+        case 'toStandby':
+          r.battery = Math.max(0, r.battery - cfg.idleDrainPerSec * sdt);
+          if (moveToward(r, dt)) { r.slot.occupant = r.id; r.state = 'waiting'; }
+          break;
+        case 'waiting':
+          r.battery = Math.max(0, r.battery - cfg.idleDrainPerSec * sdt);
+          break;
+        case 'charging':
+          r.battery = Math.min(100, r.battery + cfg.chargePerSec * sdt);
+          // During hours, leave for the return point once the resume limit is
+          // reached. Off-hours, top up to 100% and stay parked until clock-in.
+          if (open && r.battery >= cfg.maxPct) { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); }
+          break;
+      }
+    }
+    // promote nearest waiting AMR into any freed charger
+    for (const c of chargers) {
+      if (c.occupant || c.claimedBy) continue;
+      const waiters = robots.filter(r => r.state === 'waiting');
+      if (!waiters.length) break;
+      waiters.sort((a, b) => dist(a, c) - dist(b, c));
+      const r = waiters[0];
+      freeSlot(r); r.slot = c; c.claimedBy = r.id; r.state = 'toCharger'; r.target = { x: c.x - 26, y: c.y };
+    }
+  }
+
+  // ---------- rendering ----------
+  function rr(x, y, w, h, rad) {
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+
+  function drawFactory() {
+    // floor
+    ctx.fillStyle = '#11161f'; ctx.fillRect(0, 0, W, H);
+    // floor grid (tiles)
+    ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth = 1;
+    for (let x = 40; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 40; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    // work area outline
+    ctx.strokeStyle = 'rgba(79,156,255,0.25)'; ctx.setLineDash([6, 6]); ctx.lineWidth = 1.5;
+    rr(work.x0 - 18, work.y0 - 14, (work.x1 - work.x0) + 60, (work.y1 - work.y0) + 28, 12); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // labels
+    ctx.fillStyle = '#6b7790'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('POST-CHARGE RETURN', homeX, 60);
+    ctx.fillText('WORK STATIONS', (work.x0 + work.x1) / 2, 60);
+    ctx.fillText('STANDBY', standbyX, 60);
+    ctx.fillText('CHARGING BAY', chargerX, 60);
+    // pickup / drop-off row hints inside the work area
+    if (pickups.length) {
+      ctx.font = '10px sans-serif'; ctx.fillStyle = '#6b7790'; ctx.textAlign = 'left';
+      ctx.fillText('📦 PICK UP', work.x0 - 12, pickups[0].y - 22);
+      ctx.fillText('📥 DROP OFF', work.x0 - 12, dropoffs[0].y + 30);
+      ctx.textAlign = 'center';
+    }
+
+    // hazard stripe behind charging bay
+    drawHazard(chargerX - 30, 74, 60, H - 130);
+  }
+
+  function drawHazard(x, y, w, h) {
+    ctx.save();
+    rr(x, y, w, h, 8); ctx.clip();
+    ctx.fillStyle = 'rgba(251,191,36,0.06)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(251,191,36,0.18)'; ctx.lineWidth = 8;
+    for (let i = -h; i < w + h; i += 22) {
+      ctx.beginPath(); ctx.moveTo(x + i, y + h); ctx.lineTo(x + i + h, y); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(251,191,36,0.25)'; ctx.lineWidth = 1.5; rr(x, y, w, h, 8); ctx.stroke();
+  }
+
+  function drawStation(s) {
+    const busy = s.occupant || s.claimedBy;
+    const accent = s.kind === 'pickup' ? '#4f7cc4' : '#a07cc8';
+    ctx.fillStyle = busy ? '#28344c' : '#202b3f'; ctx.strokeStyle = accent; ctx.lineWidth = 2;
+    rr(s.x - 22, s.y - 17, 44, 34, 6); ctx.fill(); ctx.stroke();
+    ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(s.kind === 'pickup' ? '📦' : '📥', s.x, s.y);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawHome(h, idx) {
+    ctx.fillStyle = '#18233a'; ctx.strokeStyle = '#3f6196'; ctx.lineWidth = 2;
+    rr(h.x - 20, h.y - 16, 40, 32, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#6f9be0'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('⌂', h.x, h.y - 1);
+    ctx.fillStyle = '#5d6b86'; ctx.font = '9px sans-serif'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('R' + (idx + 1), h.x, h.y + 24);
+  }
+
+  function drawSlot(s, fill, stroke, glyph) {
+    ctx.fillStyle = s.occupant ? fill : '#161d2c'; ctx.strokeStyle = stroke; ctx.lineWidth = 2;
+    rr(s.x - 18, s.y - 16, 36, 32, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = stroke; ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(glyph, s.x, s.y); ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawRobot(r) {
+    const dead = r.state === 'dead';
+    const col = COLORS[r.state] || '#888';
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    if (dead) ctx.globalAlpha = 0.5;
+    // click-hint ring: a manual-mode AMR idling at its return point, ready for a job
+    if (!autoMode && r.state === 'home' && r.dwell <= 0 && !r.requested) {
+      ctx.strokeStyle = '#4f9cff'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+      rr(-21, -21, 42, 42, 9); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // AMR body: rounded square (cart-like)
+    ctx.fillStyle = col; ctx.strokeStyle = '#0c1320'; ctx.lineWidth = 2.5;
+    rr(-16, -16, 32, 32, 7); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (dead) {
+      // powered off: show a power glyph instead of the battery readout
+      ctx.fillStyle = '#aab4c8'; ctx.font = '14px sans-serif'; ctx.fillText('⏻', 0, 0);
+    } else {
+      ctx.fillStyle = '#06203f'; ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(Math.round(r.battery) + '%', 0, 0);
+    }
+    ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+    // carried part: a small crate riding on top while moving pickup -> dropoff
+    if (r.carrying) {
+      ctx.fillStyle = '#f5b942'; ctx.strokeStyle = '#0c1320'; ctx.lineWidth = 1.5;
+      rr(r.x + 8, r.y - 24, 13, 12, 2); ctx.fill(); ctx.stroke();
+    }
+    // id label
+    ctx.fillStyle = '#cdd7ea'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('AMR ' + r.id, r.x, r.y - 22);
+    // battery bar
+    const bw = 30, bh = 5, bx = r.x - bw / 2, by = r.y + 20;
+    ctx.fillStyle = '#0c1320'; rr(bx, by, bw, bh, 2); ctx.fill();
+    ctx.fillStyle = r.battery <= cfg.minPct ? '#ef4444' : (r.battery >= cfg.maxPct ? '#34d399' : '#fbbf24');
+    rr(bx, by, bw * r.battery / 100, bh, 2); ctx.fill();
+  }
+
+  function drawClock() {
+    const open = isOpenAt(simHour);
+    const label = '🕐 ' + clockLabel();
+    const status = open ? 'OPEN' : 'OFF-HOURS';
+    ctx.font = 'bold 14px sans-serif';
+    const text = label + '   ·   ' + status;
+    const w = ctx.measureText(text).width + 28;
+    const x = (W - w) / 2, y = 12, h = 28;
+    ctx.fillStyle = '#0c1320'; ctx.strokeStyle = open ? '#34d399' : '#fbbf24'; ctx.lineWidth = 1.5;
+    rr(x, y, w, h, 8); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e7ecf5'; ctx.fillText(label + '   ·   ', x + 14, y + h / 2 + 1);
+    const pre = ctx.measureText(label + '   ·   ').width;
+    ctx.fillStyle = open ? '#34d399' : '#fbbf24'; ctx.fillText(status, x + 14 + pre, y + h / 2 + 1);
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#6b7790'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('hours ' + pad2(cfg.openHour) + ':00–' + pad2(cfg.closeHour) + ':00', W / 2, y + h + 13);
+  }
+
+  function draw() {
+    drawFactory();
+    if (!isOpenAt(simHour)) { ctx.fillStyle = 'rgba(18,26,55,0.34)'; ctx.fillRect(0, 0, W, H); }
+    homes.forEach(drawHome);
+    stations.forEach(drawStation);
+    standbys.forEach(s => drawSlot(s, '#2b2240', '#c084fc', '◇'));
+    chargers.forEach(c => drawSlot(c, '#15324a', '#38bdf8', '⚡'));
+    robots.forEach(drawRobot);
+    drawClock();
+  }
+
+  function updateStats() {
+    const c = s => robots.filter(r => r.state === s).length;
+    document.getElementById('stats').innerHTML =
+      `<span>Working: <b>${c('toPickup') + c('atPickup') + c('toDropoff') + c('atDropoff')}</b></span>` +
+      `<span>Idle @ return: <b>${c('home')}</b></span>` +
+      `<span>Returning: <b>${c('toReturn')}</b></span>` +
+      `<span>Charging: <b>${c('toCharger') + c('charging')}</b></span>` +
+      `<span>Waiting: <b>${c('waiting') + c('toStandby')}</b></span>` +
+      `<span>Powered off: <b>${c('dead')}</b></span>` +
+      `<span>Avg battery: <b>${Math.round(robots.reduce((a, r) => a + r.battery, 0) / robots.length)}%</b></span>`;
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.1) dt = 0.1;
+    step(dt); draw(); updateStats();
+    requestAnimationFrame(frame);
+  }
+
+  // controls
+  function bind(id, outId, key, fmt) {
+    const el = document.getElementById(id), out = document.getElementById(outId);
+    const apply = (rebuild) => { cfg[key] = parseFloat(el.value); if (out) out.textContent = fmt ? fmt(cfg[key]) : cfg[key]; if (rebuild) build(); };
+    el.addEventListener('input', () => apply(id === 'robots' || id === 'chargers'));
+    apply(false);
+  }
+  bind('robots', 'vRobots', 'robots');
+  bind('chargers', 'vChargers', 'chargers');
+  bind('minPct', 'vMin', 'minPct', v => v + '%');
+  bind('maxPct', 'vMax', 'maxPct', v => v + '%');
+  bind('openH', 'vOpen', 'openHour', v => pad2(v) + ':00');
+  bind('closeH', 'vClose', 'closeHour', v => pad2(v) + ':00');
+  bind('speed', 'vSpeed', 'speed', v => v + '×');
+  const minEl = document.getElementById('minPct'), maxEl = document.getElementById('maxPct');
+  function clampLimits(changed) {
+    if (cfg.minPct >= cfg.maxPct) {
+      if (changed === 'min') { cfg.maxPct = Math.min(100, cfg.minPct + 10); maxEl.value = cfg.maxPct; document.getElementById('vMax').textContent = cfg.maxPct + '%'; }
+      else { cfg.minPct = Math.max(5, cfg.maxPct - 10); minEl.value = cfg.minPct; document.getElementById('vMin').textContent = cfg.minPct + '%'; }
+    }
+  }
+  minEl.addEventListener('input', () => clampLimits('min'));
+  maxEl.addEventListener('input', () => clampLimits('max'));
+  document.getElementById('reset').addEventListener('click', build);
+
+  // Jump the operating clock forward/back an hour. The next step() compares the
+  // new hour against prevOpen, so crossing open/close fires clock-in / clock-out
+  // automatically (AMRs head out to work, or in to charge).
+  const shiftHour = d => { simHour = (simHour + d + 24) % 24; };
+  document.getElementById('back').addEventListener('click', () => shiftHour(-1));
+  document.getElementById('fwd').addEventListener('click', () => shiftHour(1));
+
+  document.getElementById('auto').addEventListener('change', e => { autoMode = e.target.checked; });
+  document.getElementById('idle').addEventListener('change', e => { idleTrigger = e.target.checked; });
+  document.getElementById('aam').addEventListener('change', e => { alwaysAfterMission = e.target.checked; });
+
+  // Map a mouse event to canvas coordinates (the canvas is scaled to 100% width).
+  const eventPos = e => {
+    const rect = cv.getBoundingClientRect();
+    return { x: (e.clientX - rect.left) * cv.width / rect.width, y: (e.clientY - rect.top) * cv.height / rect.height };
+  };
+  // An AMR is dispatchable when it's idle at its return point awaiting a job.
+  const waiting = r => r.state === 'home' && r.dwell <= 0 && !r.requested;
+  const robotAt = p => robots.find(r => Math.abs(r.x - p.x) <= 18 && Math.abs(r.y - p.y) <= 18);
+
+  cv.addEventListener('click', e => {
+    const r = robotAt(eventPos(e));
+    if (r && waiting(r)) r.requested = true;   // dispatch one pickup -> dropoff job
+  });
+  cv.addEventListener('mousemove', e => {
+    const r = robotAt(eventPos(e));
+    cv.style.cursor = (r && waiting(r)) ? 'pointer' : 'default';
+  });
+
+  build();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
