@@ -125,7 +125,7 @@
   let autoMode = false;           // default: dispatch a job only when an AMR is clicked
   let idleTrigger = false;        // is_idle: when on, battery also triggers charging while idle at the return point
   let alwaysAfterMission = false; // always_after_mission: finishing a job always sends the robot to charge, battery aside
-  let paused = false;             // freeze the clock and every AMR in place until resumed
+  let paused = true;              // clock starts frozen; press the pause/resume button to start time
 
   // Operating window. open==close => 24h; supports overnight windows (open>close).
   function isOpenAt(h) {
@@ -596,11 +596,15 @@
 
   // Freeze / resume the whole simulation (clock and all AMRs).
   const pauseBtn = document.getElementById('pause');
-  pauseBtn.addEventListener('click', () => {
-    paused = !paused;
+  const syncPauseBtn = () => {
     pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
     pauseBtn.classList.toggle('paused', paused);
+  };
+  pauseBtn.addEventListener('click', () => {
+    paused = !paused;
+    syncPauseBtn();
   });
+  syncPauseBtn();   // reflect the initial (paused) state on load
 
   document.getElementById('auto').addEventListener('change', e => { autoMode = e.target.checked; });
   document.getElementById('idle').addEventListener('change', e => { idleTrigger = e.target.checked; });
