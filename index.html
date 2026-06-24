@@ -253,8 +253,10 @@
   function step(dt) {
     const sdt = dt * cfg.speed;
 
-    // advance the operating clock and detect clock-in / clock-out edges
-    simHour = (simHour + SIM_HOURS_PER_SEC * cfg.speed * dt) % 24;
+    // advance the operating clock and detect clock-in / clock-out edges.
+    // paused: hold the clock (and thus the open/close window) still, while the
+    // AMRs below keep running exactly as before.
+    if (!paused) simHour = (simHour + SIM_HOURS_PER_SEC * cfg.speed * dt) % 24;
     const open = isOpenAt(simHour);
     if (open !== prevOpen) {
       // clock-in: parked AMRs head back to their post-charge return point, then
@@ -511,7 +513,7 @@
   function drawClock() {
     const open = isOpenAt(simHour);
     const label = '🕐 ' + clockLabel();
-    const status = paused ? 'PAUSED' : (open ? 'OPEN' : 'OFF-HOURS');
+    const status = (open ? 'OPEN' : 'OFF-HOURS') + (paused ? ' ⏸' : '');
     const accent = paused ? '#4f9cff' : (open ? '#34d399' : '#fbbf24');
     ctx.font = 'bold 14px sans-serif';
     const text = label + '   ·   ' + status;
@@ -556,8 +558,7 @@
   function frame(now) {
     let dt = (now - last) / 1000; last = now;
     if (dt > 0.1) dt = 0.1;
-    if (!paused) step(dt);   // paused: clock + AMRs frozen, but keep rendering
-    draw(); updateStats();
+    step(dt); draw(); updateStats();
     requestAnimationFrame(frame);
   }
 
