@@ -73,7 +73,7 @@
 <body>
 <div class="wrap">
   <h1>🏭 Auto Charge 2.0 — AMR Factory Simulation</h1>
-  <div class="sub">Click an AMR resting at its return point (dashed ring) to dispatch one job: pick up a part at a top station, carry it down to a drop-off station, then head back — one job per trip. No two AMRs share a station. Toggle <b>Auto-run</b> to dispatch continuously instead. The battery check normally happens only on the return trip — if it's at or below the low-battery limit the AMR diverts to the nearest free charger (or a standby spot), charges to the resume limit, and returns. Turn on <b>is_idle</b> to also trigger charging while an AMR sits idle at its return point; with it off, an idle AMR runs flat and powers off.</div>
+  <div class="sub">Click an AMR resting at its return point (dashed ring) to dispatch one job: pick up a part at a top station, carry it down to a drop-off station, then head back — one job per trip. No two AMRs share a station. Toggle <b>Auto-run</b> to dispatch continuously instead. The battery check happens when a job finishes — if it's at or below the low-battery limit the AMR diverts straight to the nearest free charger (or a standby spot) instead of going to its return point, charges to the resume limit, and returns. Turn on <b>is_idle</b> to also trigger charging while an AMR sits idle at its return point; with it off, an idle AMR runs flat and powers off.</div>
 
   <div class="controls">
     <div class="ctrl"><label>AMRs <span class="val" id="vRobots">4</span></label><input type="range" id="robots" min="1" max="8" value="4" /></div>
@@ -98,7 +98,7 @@
 
   <div class="legend">
     <span><i class="dot" style="background:#34d399"></i>Working (📦 pick up → 📥 drop off)</span>
-    <span><i class="dot" style="background:#2dd4bf"></i>Returning — battery checked here</span>
+    <span><i class="dot" style="background:#2dd4bf"></i>Returning to return point</span>
     <span><i class="dot" style="background:#fb923c"></i>To charger</span>
     <span><i class="dot" style="background:#38bdf8"></i>Charging</span>
     <span><i class="dot" style="background:#c084fc"></i>Waiting (standby)</span>
@@ -327,24 +327,22 @@
           r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt); // unloading the part
           if (r.dwell > 0) { r.dwell -= sdt; break; }
           freeSlot(r); r.slot = null; r.carrying = false;
-          // always_after_mission: finishing a job sends the robot to charge no
-          // matter the battery level (reserve at departure; standby if all
-          // chargers are full). Otherwise just head back to the return point.
-          if (alwaysAfterMission) { requestCharge(r); break; }
+          // Mission just finished — decide here, before starting the trip home.
+          // always_after_mission (battery aside) OR a low battery sends the robot
+          // straight to a charger (reserve at departure; standby if all chargers
+          // are full). It does NOT first drive all the way to the return point and
+          // then leave for the charger — it diverts directly. Otherwise it heads
+          // back to the return point.
+          if (alwaysAfterMission || r.battery <= cfg.minPct) { requestCharge(r); break; }
           r.state = 'toReturn'; r.target = homeTarget(r);
           break;
         case 'toReturn':
           r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt);
-          // No battery trigger DURING the return trip: the robot can't cancel a
-          // running mission. The decision is made when the returning mission
-          // FINISHES (arrival) — matching the real Decide, where a low-battery
-          // GO_TO_CHARGER is suppressed by "mission already running" until the
-          // returning mission reaches SUCCEEDED.
+          // The low-battery decision is made at mission completion (atDropoff), so
+          // a robot that finished a job low on battery already diverted straight to
+          // a charger and never enters this leg. The check below is only a safety
+          // net for robots sent here by clock-in after draining at a standby spot.
           if (moveToward(r, dt)) {
-            // Returning mission done. Evaluate battery now: low -> charge. This
-            // is the ReturnPoint + mission-SUCCEEDED lowBatteryReached, which
-            // fires regardless of is_idle (is_idle governs only the later idle
-            // state in the home case below).
             if (r.battery <= cfg.minPct) { requestCharge(r); break; }
             r.state = 'home'; r.dwell = rand(0.5, 1.4);
           }
