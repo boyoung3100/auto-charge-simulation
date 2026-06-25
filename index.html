@@ -69,6 +69,7 @@
   .sched.disabled{opacity:.4;pointer-events:none;}
   .simbar button{background:var(--dk-panel2);color:var(--dk-ink);border:1px solid var(--dk-line);border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;font-size:13px;}
   .simbar button.stopped{background:var(--dk-accent);color:#06203f;border-color:var(--dk-accent);}
+  .simbar .btns{display:inline-flex;gap:8px;}
   /* stage (dark) */
   .stage{position:relative;}
   canvas{width:100%;border-radius:12px;border:1px solid var(--dk-line);display:block;background:var(--dk-bg);}
@@ -127,8 +128,7 @@
         <label class="tg"><input type="checkbox" id="clockin" checked /><span class="track"></span> clock-in return</label>
       </div>
       <div class="sep"></div>
-      <button id="reset">↻ Reset</button>
-      <button id="stop">⏹ Stop</button>
+      <span class="btns"><button id="reset">↻ Reset</button><button id="stop">⏹ Stop</button></span>
     </div>
     <div class="stage">
       <canvas id="cv" width="960" height="520"></canvas>
