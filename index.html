@@ -10,7 +10,12 @@
     --dk-bg:#0d1117; --dk-panel:#161b26; --dk-panel2:#1f2738; --dk-ink:#e7ecf5; --dk-muted:#8b97ac; --dk-line:#2a3346; --dk-accent:#4f9cff;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;transition:background-color .6s ease;}
+  body.day{background:#a8d8f0;}                                  /* operating hours: sky-blue */
+  body.night{background:#0a0d12;}                                /* off-hours: near-black */
+  body.night h1{color:#e7ecf5;}
+  body.night .legend,body.night .stats{color:#8b97ac;}
+  body.night .stats b{color:#e7ecf5;}
   h1{font-size:20px;margin:0 0 16px;}
   .app{display:flex;gap:20px;align-items:flex-start;max-width:1500px;margin:0 auto;}
   .settings{width:410px;flex:none;display:flex;flex-direction:column;gap:18px;}
@@ -564,6 +569,10 @@
     let dt = (now - last) / 1000; last = now;
     if (dt > 0.1) dt = 0.1;
     step(dt); draw(); updateStats();
+    // Page background tracks the operating window: sky-blue by day, near-black off-hours.
+    const dayNow = isOpenAt(simHour);
+    document.body.classList.toggle('day', dayNow);
+    document.body.classList.toggle('night', !dayNow);
     requestAnimationFrame(frame);
   }
 
