@@ -279,15 +279,17 @@
       // trigger; the battery-based trigger (requestCharge, reserve-at-departure)
       // lives only on the toReturn / idle legs below.
       // Clock-out: don't abandon the job instantly.
-      // - already on the return leg: just mark divert and let the toReturn case
-      //   run the feint (do NOT reset its timer / re-enter here, or moveToward
-      //   never runs and the robot freezes in place).
-      // - carrying a part: finish the drop-off first (divert at atDropoff).
-      // - otherwise: feint a return, then divert to a charger.
+      // - mid-job (toPickup / atPickup / toDropoff / atDropoff): finish the job
+      //   THROUGH the drop-off, then divert at atDropoff. Just mark divert and let
+      //   the normal job states run — even if not carrying yet, go pick up and
+      //   drop off first.
+      // - already on the return leg (toReturn): mark divert and let the toReturn
+      //   case run the feint (do NOT reset its timer / re-enter here, or
+      //   moveToward never runs and the robot freezes in place).
+      // - idle at the return point (home): feint a return, then divert to a charger.
       if (!open && ACTIVE.includes(r.state)) {
-        if (r.state === 'toReturn') { r.divert = true; }
-        else if (r.carrying) { r.divert = true; }
-        else { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = true; continue; }
+        if (r.state === 'home') { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = true; continue; }
+        else { r.divert = true; }
       }
 
       switch (r.state) {
