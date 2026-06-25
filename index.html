@@ -677,11 +677,16 @@
 
   cv.addEventListener('click', e => {
     const r = robotAt(eventPos(e));
-    if (r && waiting(r)) r.requested = true;   // dispatch one pickup -> dropoff job
+    if (!r) return;
+    if (waiting(r)) { r.requested = true; return; }   // idle at return point -> dispatch one pickup -> dropoff job
+    if (r.state === 'charging') {                     // charging -> manually send it back to the return point
+      freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false;
+    }
   });
   cv.addEventListener('mousemove', e => {
     const r = robotAt(eventPos(e));
-    cv.style.cursor = (r && waiting(r)) ? 'pointer' : 'default';
+    const clickable = r && (waiting(r) || r.state === 'charging');
+    cv.style.cursor = clickable ? 'pointer' : 'default';
   });
 
   build();
