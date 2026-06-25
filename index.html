@@ -278,11 +278,15 @@
       // battery, contesting docks on arrival (rush). This is the time-based
       // trigger; the battery-based trigger (requestCharge, reserve-at-departure)
       // lives only on the toReturn / idle legs below.
-      // Clock-out: don't abandon the job instantly. If carrying a part, finish
-      // the drop-off first (then divert at atDropoff via r.divert); otherwise
-      // feint a return for ~0.5s, then divert to a charger.
+      // Clock-out: don't abandon the job instantly.
+      // - already on the return leg: just mark divert and let the toReturn case
+      //   run the feint (do NOT reset its timer / re-enter here, or moveToward
+      //   never runs and the robot freezes in place).
+      // - carrying a part: finish the drop-off first (divert at atDropoff).
+      // - otherwise: feint a return, then divert to a charger.
       if (!open && ACTIVE.includes(r.state)) {
-        if (r.carrying) { r.divert = true; }
+        if (r.state === 'toReturn') { r.divert = true; }
+        else if (r.carrying) { r.divert = true; }
         else { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = true; continue; }
       }
 
@@ -352,10 +356,10 @@
           r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt);
           r.returnT = (r.returnT || 0) + dt;
           // Diverting (low battery at job end, always_after_mission, or clock-out):
-          // feint the return for ~0.5s, then finish in place and head to a charger
+          // feint the return for ~0.25s, then finish in place and head to a charger
           // — the real robot can't cancel a running mission instantly, it FINISHES
           // the returning mission first.
-          if (r.divert && r.returnT >= 0.5) { r.divert = false; requestCharge(r); break; }
+          if (r.divert && r.returnT >= 0.25) { r.divert = false; requestCharge(r); break; }
           if (moveToward(r, dt)) {
             // Safety net for robots sent here by clock-in after draining.
             if (r.battery <= cfg.minPct) { requestCharge(r); break; }
