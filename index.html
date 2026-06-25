@@ -68,6 +68,7 @@
   .sched{display:flex;gap:12px 18px;align-items:flex-end;flex-wrap:wrap;transition:opacity .15s;}
   .sched.disabled{opacity:.4;pointer-events:none;}
   .simbar button{background:var(--dk-panel2);color:var(--dk-ink);border:1px solid var(--dk-line);border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;font-size:13px;}
+  .simbar button.stopped{background:var(--dk-accent);color:#06203f;border-color:var(--dk-accent);}
   /* stage (dark) */
   .stage{position:relative;}
   canvas{width:100%;border-radius:12px;border:1px solid var(--dk-line);display:block;background:var(--dk-bg);}
@@ -127,6 +128,7 @@
       </div>
       <div class="sep"></div>
       <button id="reset">↻ Reset</button>
+      <button id="stop">⏹ Stop</button>
     </div>
     <div class="stage">
       <canvas id="cv" width="960" height="520"></canvas>
@@ -167,6 +169,7 @@
   let goToPostCharge = true;      // go to post-charge return (default ON): when ON a fully-charged AMR leaves the charger for its post-charge return point; when OFF it stays parked at the charger
   let clockInReturn = true;       // clock-in return (default ON): when ON a charger AMR leaves for the return point at clock-in / once charged during hours; when OFF it stays at the charger even after open
   let paused = true;              // clock starts frozen; press the pause/resume button to start time
+  let stopped = false;            // hard stop: freeze the ENTIRE simulation (clock AND all AMR movement), unlike pause which only holds the clock
 
   // Operating window. open==close => 24h; supports overnight windows (open>close).
   function isOpenAt(h) {
@@ -574,7 +577,8 @@
   function frame(now) {
     let dt = (now - last) / 1000; last = now;
     if (dt > 0.1) dt = 0.1;
-    step(dt); draw(); updateStats();
+    if (!stopped) step(dt);   // hard stop freezes clock + all AMR movement (pause only holds the clock)
+    draw(); updateStats();
     // Page background tracks the operating window: sky-blue by day, near-black off-hours.
     const dayNow = isOpenAt(simHour);
     document.body.classList.toggle('day', dayNow);
@@ -606,6 +610,15 @@
   minEl.addEventListener('input', () => clampLimits('min'));
   maxEl.addEventListener('input', () => clampLimits('max'));
   document.getElementById('reset').addEventListener('click', build);
+
+  // Hard stop: freeze the whole simulation (clock + every AMR), distinct from the
+  // Pause button which only holds the operating clock while AMRs keep moving.
+  const stopBtn = document.getElementById('stop');
+  stopBtn.addEventListener('click', () => {
+    stopped = !stopped;
+    stopBtn.textContent = stopped ? '▶ Start' : '⏹ Stop';
+    stopBtn.classList.toggle('stopped', stopped);
+  });
 
   const shiftHour = d => { simHour = (simHour + d + 24) % 24; };
   document.getElementById('back').addEventListener('click', () => shiftHour(-1));
