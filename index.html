@@ -23,6 +23,7 @@
   /* cards (light) */
   .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;box-shadow:0 1px 3px rgba(16,24,40,.06);}
   .card.disabled{opacity:.45;pointer-events:none;}
+  .dim{opacity:.45;pointer-events:none;transition:opacity .15s;}
   .card-head{display:flex;align-items:center;gap:11px;margin-bottom:18px;}
   .card-icon{width:34px;height:34px;border-radius:50%;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-size:16px;}
   .card-title{font-size:17px;font-weight:700;}
@@ -90,12 +91,14 @@
     <!-- Charging Trigger -->
     <div class="card">
       <div class="card-head"><div class="card-icon">⚡</div><div class="card-title">Charging Trigger</div></div>
-      <div class="field-top"><div class="field-label">Low Battery Threshold</div><div class="field-val" id="vMin">20%</div></div>
-      <div class="field-desc">When battery drops below this level, the robot — once it finishes its current mission or while waiting at a return point — will be sent to an available charger.</div>
-      <input type="range" id="minPct" min="5" max="60" value="20" />
+      <div id="lowField">
+        <div class="field-top"><div class="field-label">Low Battery Threshold</div><div class="field-val" id="vMin">20%</div></div>
+        <div class="field-desc">When battery drops below this level, the robot — once it finishes its current mission or while waiting at a return point — will be sent to an available charger.</div>
+        <input type="range" id="minPct" min="5" max="60" value="20" />
+      </div>
       <div class="more-head" id="moreHead"><div class="more-title">More Options</div><span class="chev" id="chev">⌃</span></div>
       <div class="more-body" id="moreBody">
-        <label class="opt"><input type="checkbox" id="idle" /><span class="opt-check">✓</span><div><div class="opt-title">When Idle</div><div class="opt-desc">Idle robots will be sent to charge as soon as their battery hits the low battery threshold, even if they haven't been sent to a return point.</div></div></label>
+        <label class="opt" id="idleOpt"><input type="checkbox" id="idle" /><span class="opt-check">✓</span><div><div class="opt-title">When Idle</div><div class="opt-desc">Idle robots will be sent to charge as soon as their battery hits the low battery threshold, even if they haven't been sent to a return point.</div></div></label>
         <label class="opt"><input type="checkbox" id="aam" /><span class="opt-check">✓</span><div><div class="opt-title">Always after completing a mission</div><div class="opt-desc">Send to charge after every mission, regardless of battery level. Post-Charge Behavior and Operation Schedule will automatically be disabled.</div></div></label>
       </div>
     </div>
@@ -303,7 +306,10 @@
       //   run the feint (do NOT reset its timer here or moveToward never runs).
       // - idle at the return point (home): feint a return, then divert to a charger.
       if (!open && ACTIVE.includes(r.state)) {
-        if (r.state === 'home') { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = true; continue; }
+        // Idle at the return point: clock-out behaves like is_idle — send it
+        // straight to a charger. (No feint: it's already parked at the return
+        // point, so a toReturn leg would arrive instantly and bounce back home.)
+        if (r.state === 'home') { requestCharge(r); continue; }
         else { r.divert = true; }
       }
 
@@ -622,9 +628,21 @@
   // automatically disabled (greyed out) — matches the real proto constraint.
   const postCard = document.getElementById('postCard');
   const schedEl = document.getElementById('sched');
+  const lowField = document.getElementById('lowField');
+  const idleOpt = document.getElementById('idleOpt');
+  const postToggle = document.getElementById('postcharge');
   function syncAlways() {
-    postCard.classList.toggle('disabled', alwaysAfterMission);
-    schedEl.classList.toggle('disabled', alwaysAfterMission);
+    const on = alwaysAfterMission;
+    // always_after_mission overrides everything: grey out the rest of Charging
+    // Trigger (threshold + When Idle), disable Post-Charge Behavior + Operation
+    // Schedule, and force post-charge OFF. Turning always back off restores them
+    // (post-charge returns to ON).
+    lowField.classList.toggle('dim', on);
+    idleOpt.classList.toggle('dim', on);
+    postCard.classList.toggle('disabled', on);
+    schedEl.classList.toggle('disabled', on);
+    goToPostCharge = !on;
+    postToggle.checked = !on;
   }
   document.getElementById('aam').addEventListener('change', e => { alwaysAfterMission = e.target.checked; syncAlways(); });
   syncAlways();
