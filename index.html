@@ -381,7 +381,21 @@
           r.battery = Math.min(100, r.battery + cfg.chargePerSec * sdt);
           // During hours, leave for the return point once the resume limit is reached
           // (gated by go-to-post-charge + clock-in return). Off-hours, top up and stay.
-          if (open && goToPostCharge && clockInReturn && r.battery >= cfg.maxPct) { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false; }
+          if (open && goToPostCharge && clockInReturn && r.battery >= cfg.maxPct) { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false; break; }
+          // Off-hours anti-starvation handoff: once charged to the resume
+          // threshold, yield the charger to a waiting standby AMR so a fleet with
+          // fewer chargers than robots shares them overnight. The just-charged
+          // robot moves to standby; the lowest-battery waiter takes the freed dock.
+          // They rotate, so battery evens out instead of one robot hogging a dock.
+          if (!open && r.battery >= cfg.maxPct) {
+            const waiters = robots.filter(w => w.state === 'waiting');
+            if (waiters.length && nearestFree(standbys, r)) {
+              waiters.sort((a, b) => a.battery - b.battery);
+              const low = waiters[0], dock = r.slot;
+              freeSlot(r); r.slot = null; goStandby(r);                 // charged robot -> standby
+              if (dock) { freeSlot(low); low.slot = dock; dock.claimedBy = low.id; low.state = 'toCharger'; low.target = { x: dock.x - 26, y: dock.y }; }
+            }
+          }
           break;
       }
     }
