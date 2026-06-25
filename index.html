@@ -87,6 +87,7 @@
     <label class="toggle"><input type="checkbox" id="idle" /><span class="track"></span> is_idle</label>
     <label class="toggle"><input type="checkbox" id="aam" /><span class="track"></span> always_after_mission</label>
     <label class="toggle"><input type="checkbox" id="postcharge" checked /><span class="track"></span> go to post-charge return</label>
+    <label class="toggle"><input type="checkbox" id="clockin" checked /><span class="track"></span> clock-in return</label>
     <button id="reset">↻ Reset</button>
   </div>
 
@@ -127,6 +128,7 @@
   let idleTrigger = false;        // is_idle: when on, battery also triggers charging while idle at the return point
   let alwaysAfterMission = false; // always_after_mission: finishing a job always sends the robot to charge, battery aside
   let goToPostCharge = true;      // go to post-charge return (default ON): when ON a fully-charged AMR leaves the charger for its post-charge return point; when OFF it stays parked at the charger
+  let clockInReturn = true;       // clock-in return (default ON): when ON a charger AMR leaves for the return point at clock-in / once charged during hours; when OFF it stays at the charger even after open
   let paused = true;              // clock starts frozen; press the pause/resume button to start time
 
   // Operating window. open==close => 24h; supports overnight windows (open>close).
@@ -265,7 +267,7 @@
       // resume the task cycle. (clock-out is handled per-tick below.)
       if (open) {
         for (const r of robots) {
-          if (['charging', 'waiting', 'toStandby', 'toCharger'].includes(r.state)) {
+          if (clockInReturn && ['charging', 'waiting', 'toStandby', 'toCharger'].includes(r.state)) {
             freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false;
           }
         }
@@ -395,7 +397,7 @@
           r.battery = Math.min(100, r.battery + cfg.chargePerSec * sdt);
           // During hours, leave for the return point once the resume limit is
           // reached. Off-hours, top up to 100% and stay parked until clock-in.
-          if (open && goToPostCharge && r.battery >= cfg.maxPct) { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false; }
+          if (open && goToPostCharge && clockInReturn && r.battery >= cfg.maxPct) { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false; }
           break;
       }
     }
@@ -629,6 +631,7 @@
   document.getElementById('idle').addEventListener('change', e => { idleTrigger = e.target.checked; });
   document.getElementById('aam').addEventListener('change', e => { alwaysAfterMission = e.target.checked; });
   document.getElementById('postcharge').addEventListener('change', e => { goToPostCharge = e.target.checked; });
+  document.getElementById('clockin').addEventListener('change', e => { clockInReturn = e.target.checked; });
 
   // Map a mouse event to canvas coordinates (the canvas is scaled to 100% width).
   const eventPos = e => {
