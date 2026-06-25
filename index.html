@@ -86,7 +86,7 @@
     <label class="toggle"><input type="checkbox" id="auto" /><span class="track"></span> Auto-run</label>
     <label class="toggle"><input type="checkbox" id="idle" /><span class="track"></span> is_idle</label>
     <label class="toggle"><input type="checkbox" id="aam" /><span class="track"></span> always_after_mission</label>
-    <label class="toggle"><input type="checkbox" id="postcharge" /><span class="track"></span> go to post-charge</label>
+    <label class="toggle"><input type="checkbox" id="postcharge" checked /><span class="track"></span> go to post-charge return</label>
     <button id="reset">↻ Reset</button>
   </div>
 
@@ -126,7 +126,7 @@
   let autoMode = false;           // default: dispatch a job only when an AMR is clicked
   let idleTrigger = false;        // is_idle: when on, battery also triggers charging while idle at the return point
   let alwaysAfterMission = false; // always_after_mission: finishing a job always sends the robot to charge, battery aside
-  let goToPostCharge = false;     // go to post-charge: when ON a fully-charged AMR leaves the charger for its post-charge return point; when OFF it stays parked at the charger
+  let goToPostCharge = true;      // go to post-charge return (default ON): when ON a fully-charged AMR leaves the charger for its post-charge return point; when OFF it stays parked at the charger
   let paused = true;              // clock starts frozen; press the pause/resume button to start time
 
   // Operating window. open==close => 24h; supports overnight windows (open>close).
