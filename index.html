@@ -76,16 +76,17 @@
   <div class="sub">Click an AMR resting at its return point (dashed ring) to dispatch one job: pick up a part at a top station, carry it down to a drop-off station, then head back — one job per trip. No two AMRs share a station. Toggle <b>Auto-run</b> to dispatch continuously instead. The battery check happens when a job finishes — if it's at or below the low-battery limit the AMR diverts straight to the nearest free charger (or a standby spot) instead of going to its return point, charges to the resume limit, and returns. Turn on <b>is_idle</b> to also trigger charging while an AMR sits idle at its return point; with it off, an idle AMR runs flat and powers off.</div>
 
   <div class="controls">
-    <div class="ctrl"><label>AMRs <span class="val" id="vRobots">4</span></label><input type="range" id="robots" min="1" max="8" value="4" /></div>
-    <div class="ctrl"><label>Chargers <span class="val" id="vChargers">2</span></label><input type="range" id="chargers" min="1" max="6" value="2" /></div>
-    <div class="ctrl"><label>Low limit → charge <span class="val" id="vMin">20%</span></label><input type="range" id="minPct" min="5" max="60" value="20" /></div>
-    <div class="ctrl"><label>Resume limit → work <span class="val" id="vMax">80%</span></label><input type="range" id="maxPct" min="40" max="100" value="80" /></div>
+    <div class="ctrl"><label>AMRs <span class="val" id="vRobots">1</span></label><input type="range" id="robots" min="1" max="8" value="1" /></div>
+    <div class="ctrl"><label>Chargers <span class="val" id="vChargers">1</span></label><input type="range" id="chargers" min="1" max="6" value="1" /></div>
+    <div class="ctrl"><label>Low Battery Threshold <span class="val" id="vMin">20%</span></label><input type="range" id="minPct" min="5" max="60" value="20" /></div>
+    <div class="ctrl"><label>Resume Work Threshold <span class="val" id="vMax">80%</span></label><input type="range" id="maxPct" min="40" max="100" value="80" /></div>
     <div class="ctrl"><label>Open <span class="val" id="vOpen">09:00</span></label><input type="range" id="openH" min="0" max="23" value="9" /></div>
     <div class="ctrl"><label>Close <span class="val" id="vClose">18:00</span></label><input type="range" id="closeH" min="0" max="23" value="18" /></div>
     <div class="ctrl"><label>Speed <span class="val" id="vSpeed">1.5×</span></label><input type="range" id="speed" min="0.5" max="5" step="0.5" value="1.5" /></div>
     <label class="toggle"><input type="checkbox" id="auto" /><span class="track"></span> Auto-run</label>
     <label class="toggle"><input type="checkbox" id="idle" /><span class="track"></span> is_idle</label>
     <label class="toggle"><input type="checkbox" id="aam" /><span class="track"></span> always_after_mission</label>
+    <label class="toggle"><input type="checkbox" id="postcharge" /><span class="track"></span> go to post-charge</label>
     <button id="reset">↻ Reset</button>
   </div>
 
@@ -115,7 +116,7 @@
   const W = cv.width, H = cv.height;
 
   const cfg = {
-    robots: 4, chargers: 2, minPct: 20, maxPct: 80, speed: 1.5,
+    robots: 1, chargers: 1, minPct: 20, maxPct: 80, speed: 1.5,
     openHour: 9, closeHour: 18,
     drainPerSec: 1.5, chargePerSec: 4.5, idleDrainPerSec: 0.5, restDrainPerSec: 0.2, robotSpeed: 95,   // charge:drain = 3:1
   };
@@ -125,6 +126,7 @@
   let autoMode = false;           // default: dispatch a job only when an AMR is clicked
   let idleTrigger = false;        // is_idle: when on, battery also triggers charging while idle at the return point
   let alwaysAfterMission = false; // always_after_mission: finishing a job always sends the robot to charge, battery aside
+  let goToPostCharge = false;     // go to post-charge: when ON a fully-charged AMR leaves the charger for its post-charge return point; when OFF it stays parked at the charger
   let paused = true;              // clock starts frozen; press the pause/resume button to start time
 
   // Operating window. open==close => 24h; supports overnight windows (open>close).
@@ -189,7 +191,7 @@
       robots.push({
         id: i + 1, home,
         x: home.x + 26, y: home.y,
-        battery: rand(cfg.maxPct, 100),
+        battery: rand(30, 100),
         state: 'home', target: { x: home.x + 26, y: home.y }, slot: null, carrying: false,
         requested: false,                // manual mode: set true on click
         dwell: rand(0, 0.8) + i * 0.3,   // stagger first dispatch (auto mode)
@@ -264,7 +266,7 @@
       if (open) {
         for (const r of robots) {
           if (['charging', 'waiting', 'toStandby', 'toCharger'].includes(r.state)) {
-            freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r);
+            freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false;
           }
         }
       }
@@ -276,7 +278,13 @@
       // battery, contesting docks on arrival (rush). This is the time-based
       // trigger; the battery-based trigger (requestCharge, reserve-at-departure)
       // lives only on the toReturn / idle legs below.
-      if (!open && ACTIVE.includes(r.state)) { rushToCharger(r); continue; }
+      // Clock-out: don't abandon the job instantly. If carrying a part, finish
+      // the drop-off first (then divert at atDropoff via r.divert); otherwise
+      // feint a return for ~0.5s, then divert to a charger.
+      if (!open && ACTIVE.includes(r.state)) {
+        if (r.carrying) { r.divert = true; }
+        else { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = true; continue; }
+      }
 
       switch (r.state) {
         case 'home':
@@ -333,16 +341,23 @@
           // are full). It does NOT first drive all the way to the return point and
           // then leave for the charger — it diverts directly. Otherwise it heads
           // back to the return point.
-          if (alwaysAfterMission || r.battery <= cfg.minPct) { requestCharge(r); break; }
-          r.state = 'toReturn'; r.target = homeTarget(r);
+          // Mission finished. always_after_mission, low battery, or clock-out
+          // (r.divert) → feint a return for ~0.5s then divert to a charger (the
+          // real robot finishes the returning mission in place rather than
+          // cancelling it instantly). Otherwise head back to the return point.
+          r.divert = alwaysAfterMission || r.battery <= cfg.minPct || r.divert;
+          r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0;
           break;
         case 'toReturn':
           r.battery = Math.max(0, r.battery - cfg.drainPerSec * sdt);
-          // The low-battery decision is made at mission completion (atDropoff), so
-          // a robot that finished a job low on battery already diverted straight to
-          // a charger and never enters this leg. The check below is only a safety
-          // net for robots sent here by clock-in after draining at a standby spot.
+          r.returnT = (r.returnT || 0) + dt;
+          // Diverting (low battery at job end, always_after_mission, or clock-out):
+          // feint the return for ~0.5s, then finish in place and head to a charger
+          // — the real robot can't cancel a running mission instantly, it FINISHES
+          // the returning mission first.
+          if (r.divert && r.returnT >= 0.5) { r.divert = false; requestCharge(r); break; }
           if (moveToward(r, dt)) {
+            // Safety net for robots sent here by clock-in after draining.
             if (r.battery <= cfg.minPct) { requestCharge(r); break; }
             r.state = 'home'; r.dwell = rand(0.5, 1.4);
           }
@@ -374,7 +389,7 @@
           r.battery = Math.min(100, r.battery + cfg.chargePerSec * sdt);
           // During hours, leave for the return point once the resume limit is
           // reached. Off-hours, top up to 100% and stay parked until clock-in.
-          if (open && r.battery >= cfg.maxPct) { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); }
+          if (open && goToPostCharge && r.battery >= cfg.maxPct) { freeSlot(r); r.slot = null; r.state = 'toReturn'; r.target = homeTarget(r); r.returnT = 0; r.divert = false; }
           break;
       }
     }
@@ -607,6 +622,7 @@
   document.getElementById('auto').addEventListener('change', e => { autoMode = e.target.checked; });
   document.getElementById('idle').addEventListener('change', e => { idleTrigger = e.target.checked; });
   document.getElementById('aam').addEventListener('change', e => { alwaysAfterMission = e.target.checked; });
+  document.getElementById('postcharge').addEventListener('change', e => { goToPostCharge = e.target.checked; });
 
   // Map a mouse event to canvas coordinates (the canvas is scaled to 100% width).
   const eventPos = e => {
